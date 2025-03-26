@@ -58,6 +58,10 @@
       color: #666;
     }
 
+    .instructions li.divider::before {
+      content: none;
+    }
+
     .color-key {
       display: flex;
       gap: 1em;
@@ -146,7 +150,7 @@
       <li>📂 Click "Choose Files" to add audio files to the queue</li>
       <li>↕️ Drag cues to reorder them</li>
       <li>✏️ Double-click a cue name to rename it</li>
-      <li>-----</li>
+      <li class="divider">--------------------------------</li>
       <li>▶️ Click any cue to select it, then press GO to play</li>
       <li>⏭️ When a cue finishes playing, the next cue is automatically selected</li>
       <li>⬅️➡️ Use BACK/NEXT buttons only for manual navigation between cues</li>
