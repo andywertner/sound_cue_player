@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sound Cue Player</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; background: #f5f5f5; display: flex; flex-direction: column; min-height: 50vh; }
+    h1 { margin-top: 0; }
+    input[type="file"] { margin-bottom: 1em; }
+
+    .instructions {
+      background: #fff;
+      padding: 1em;
+      border-radius: 5px;
+      margin-bottom: 1em;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .instructions-header {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 0.5em;
+    }
+
+    .instructions-header:hover {
+      color: #0056b3;
+    }
+
+    .instructions-content {
+      display: block;
+      padding-left: 1.5em;
+    }
+
+    .instructions-content.collapsed {
+      display: none;
+    }
+
+    .instructions ul {
+      margin: 0;
+      padding-left: 1.5em;
+    }
+
+    .instructions li {
+      margin-bottom: 0.3em;
+      background: none;
+      padding: 0;
+      cursor: default;
+      position: relative;
+    }
+
+    .instructions li::before {
+      content: "•";
+      position: absolute;
+      left: -1em;
+      color: #666;
+    }
+
+    .color-key {
+      display: flex;
+      gap: 1em;
+      margin-top: 0.5em;
+      flex-wrap: wrap;
+    }
+
+    .color-key-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+
+    .color-sample {
+      width: 1em;
+      height: 1em;
+      border-radius: 3px;
+    }
+
+    ol { list-style: decimal inside; padding: 0; flex-grow: 1; }
+    li { background: #fff; margin-bottom: 0.5em; padding: 0.5em; border-radius: 5px; cursor: grab; display: flex; justify-content: space-between; align-items: center; }
+    li.dragging { opacity: 0.5; }
+    li.playing { background: #cce5ff; }
+    li.ready { background: #d4edda; }
+    li .cue-number { font-weight: bold; margin-right: 0.5em; color: #666; }
+    li .cue-name { flex-grow: 1; }
+    li input[type="text"] { flex-grow: 1; margin: 0 0.5em; padding: 0.2em; border: 1px solid #ccc; border-radius: 3px; }
+
+    #controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1em;
+      margin-top: 2em;
+    }
+
+    #goButton {
+      font-size: 2em;
+      padding: 0.5em 2em;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #stopButton {
+      font-size: 1em;
+      padding: 0.5em 1em;
+      background: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .nav-button {
+      font-size: 1em;
+      padding: 0.5em 1em;
+      background: #6c757d;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .nav-button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    audio { width: 100%; margin-top: 1em; }
+  </style>
+</head>
+<body>
+
+<h1>Sound Cue Player</h1>
+
+<div class="instructions">
+  <div class="instructions-header">
+    <span>Instructions</span>
+    <span style="margin-left: 0.5em;">▼</span>
+  </div>
+  <div class="instructions-content">
+    <ul>
+      <li>📂 Click "Choose Files" to add audio files to the queue</li>
+      <li>▶️ Click any cue to select it, then press GO to play</li>
+      <li>✏️ Double-click a cue name to rename it</li>
+      <li>↕️ Drag cues to reorder them</li>
+      <li>⏭️ When a cue finishes playing, the next cue is automatically selected</li>
+      <li>⬅️➡️ Use BACK/NEXT buttons only for manual navigation between cues</li>
+    </ul>
+    <div class="color-key">
+      <div class="color-key-item">
+        <div class="color-sample" style="background: #d4edda;"></div>
+        <span>Ready to play</span>
+      </div>
+      <div class="color-key-item">
+        <div class="color-sample" style="background: #cce5ff;"></div>
+        <span>Currently playing</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<input type="file" multiple accept="audio/*" id="fileInput">
+<ol id="cueList"></ol>
+
+<audio id="audio" controls></audio>
+
+<div id="controls">
+  <button id="goButton">GO</button>
+  <button id="stopButton">STOP</button>
+  <button id="backButton" class="nav-button">BACK</button>
+  <button id="nextButton" class="nav-button">NEXT</button>
+</div>
+
+<script>
+  const fileInput = document.getElementById("fileInput");
+  const cueList = document.getElementById("cueList");
+  const audio = document.getElementById("audio");
+  const goButton = document.getElementById("goButton");
+  const stopButton = document.getElementById("stopButton");
+  const backButton = document.getElementById("backButton");
+  const nextButton = document.getElementById("nextButton");
+
+  // Add instructions toggle functionality
+  const instructionsHeader = document.querySelector('.instructions-header');
+  const instructionsContent = document.querySelector('.instructions-content');
+  const instructionsArrow = instructionsHeader.querySelector('span:last-child');
+
+  instructionsHeader.addEventListener('click', () => {
+    instructionsContent.classList.toggle('collapsed');
+    instructionsArrow.textContent = instructionsContent.classList.contains('collapsed') ? '▶' : '▼';
+  });
+
+  let cues = [];
+  let currentIndex = 0;
+  let draggingIndex = null;
+
+  fileInput.addEventListener("change", (event) => {
+    const newFiles = Array.from(event.target.files).map(file => ({
+      file,
+      url: URL.createObjectURL(file)
+    }));
+    
+    // Append new files to existing cues
+    cues = [...cues, ...newFiles];
+    
+    // If this is the first file being added, set currentIndex to 0
+    if (cues.length === newFiles.length) {
+      currentIndex = 0;
+    }
+    
+    renderCueList();
+  });
+
+  function renderCueList() {
+    cueList.innerHTML = "";
+    cues.forEach((cue, index) => {
+      const li = document.createElement("li");
+      
+      // Create cue number span
+      const numberSpan = document.createElement("span");
+      numberSpan.className = "cue-number";
+      numberSpan.textContent = `${index + 1}.`;
+      
+      // Create cue name span
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "cue-name";
+      nameSpan.textContent = cue.file.name;
+      
+      // Add double-click handler for renaming
+      nameSpan.addEventListener("dblclick", () => {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = nameSpan.textContent;
+        input.className = "cue-name-input";
+        
+        input.addEventListener("blur", () => {
+          const newName = input.value.trim();
+          if (newName) {
+            nameSpan.textContent = newName;
+            // Create a new File object with the new name
+            const newFile = new File([cue.file], newName, { type: cue.file.type });
+            cue.file = newFile;
+            cue.url = URL.createObjectURL(newFile);
+          }
+          input.remove();
+        });
+        
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            input.blur();
+          } else if (e.key === "Escape") {
+            input.remove();
+          }
+        });
+        
+        nameSpan.textContent = "";
+        nameSpan.appendChild(input);
+        input.focus();
+        input.select();
+      });
+      
+      li.appendChild(numberSpan);
+      li.appendChild(nameSpan);
+      li.setAttribute("draggable", true);
+      li.dataset.index = index;
+
+      if (index === currentIndex && !audio.src) {
+        li.classList.add("ready");
+      } else if (index === currentIndex && !audio.paused) {
+        li.classList.add("playing");
+      }
+
+      li.addEventListener("dragstart", e => {
+        draggingIndex = index;
+        li.classList.add("dragging");
+      });
+
+      li.addEventListener("dragend", e => {
+        draggingIndex = null;
+        li.classList.remove("dragging");
+      });
+
+      li.addEventListener("dragover", e => {
+        e.preventDefault();
+      });
+
+      li.addEventListener("drop", e => {
+        const targetIndex = parseInt(li.dataset.index);
+        if (draggingIndex === null || draggingIndex === targetIndex) return;
+
+        const draggedCue = cues.splice(draggingIndex, 1)[0];
+        cues.splice(targetIndex, 0, draggedCue);
+
+        if (draggingIndex === currentIndex) {
+          currentIndex = targetIndex;
+        } else if (draggingIndex < currentIndex && targetIndex >= currentIndex) {
+          currentIndex -= 1;
+        } else if (draggingIndex > currentIndex && targetIndex <= currentIndex) {
+          currentIndex += 1;
+        }
+
+        renderCueList();
+      });
+
+      // Add click handler to select cues
+      li.addEventListener("click", e => {
+        const clickedIndex = parseInt(li.dataset.index);
+        if (clickedIndex !== currentIndex) {
+          currentIndex = clickedIndex;
+          audio.pause();
+          audio.currentTime = 0;
+          updateCueStyles(currentIndex);
+        }
+      });
+
+      cueList.appendChild(li);
+    });
+  }
+
+  function playCue(index) {
+    if (!cues[index]) return;
+    audio.src = cues[index].url;
+    audio.play();
+    updateCueStyles(index);
+  }
+
+  function updateCueStyles(index) {
+    [...cueList.children].forEach((li, i) => {
+      li.classList.remove("playing", "ready");
+      if (i === index) {
+        if (!audio.src || audio.paused) {
+          li.classList.add("ready");
+        } else {
+          li.classList.add("playing");
+        }
+      }
+    });
+
+    // Update navigation button states
+    backButton.disabled = index <= 0;
+    nextButton.disabled = index >= cues.length - 1;
+  }
+
+  goButton.addEventListener("click", () => {
+    if (currentIndex < cues.length) {
+      playCue(currentIndex);
+    }
+  });
+
+  stopButton.addEventListener("click", () => {
+    audio.pause();
+    audio.currentTime = 0;
+    updateCueStyles(currentIndex);
+  });
+
+  backButton.addEventListener("click", () => {
+    if (currentIndex > 0) {
+      currentIndex--;
+      audio.pause();
+      audio.currentTime = 0;
+      updateCueStyles(currentIndex);
+    }
+  });
+
+  nextButton.addEventListener("click", () => {
+    if (currentIndex < cues.length - 1) {
+      currentIndex++;
+      audio.pause();
+      audio.currentTime = 0;
+      updateCueStyles(currentIndex);
+    }
+  });
+
+  audio.addEventListener("ended", () => {
+    currentIndex++;
+    if (currentIndex < cues.length) {
+      updateCueStyles(currentIndex);
+    }
+  });
+</script>
+
+</body>
+</html>
